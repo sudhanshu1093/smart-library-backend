@@ -18,6 +18,21 @@ app.get("/", (req, res) => {
   res.send("Smart Library Backend Running 🚀");
 });
 
+app.post("/login", (req, res) => {
+  const { role, username, password } = req.body;
+
+  if (!role || !username || !password) {
+    return res.json({ success: false, message: "All fields required" });
+  }
+
+  // Dummy user check (temporary)
+  if (username === "admin" && password === "1234") {
+    return res.json({ success: true });
+  }
+
+  res.json({ success: false, message: "Invalid Credentials" });
+});
+
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
