@@ -78,7 +78,8 @@ const issueSchema = new mongoose.Schema(
 
 const Issue = mongoose.model("Issue", issueSchema);
 
-const FINE_PER_DAY = 2;
+const FINE_PER_DAY = 1;
+const MAX_BOOK_LIMIT = 3;
 
 /* ================= TEST ROUTE ================= */
 
@@ -187,19 +188,10 @@ app.post("/books", async (req, res) => {
   try {
     const { title, author, quantity } = req.body;
 
-    if (!title || !author || quantity === undefined) {
-      return res.status(400).json({
-        success: false,
-        message: "title, author, quantity required",
-      });
-    }
-
-    const q = Number(quantity);
-
     const book = await Book.create({
       title,
       author,
-      quantity: q,
+      quantity: Number(quantity),
     });
 
     res.json({
@@ -255,12 +247,28 @@ app.post("/issues/issue", async (req, res) => {
       });
     }
 
+    // Student limit check
+    const issuedCount = await Issue.countDocuments({
+      username,
+      returned: false,
+    });
+
+    if (issuedCount >= MAX_BOOK_LIMIT) {
+      return res.status(400).json({
+        success: false,
+        message: "Maximum 3 books allowed",
+      });
+    }
+
+    const issueDate = new Date();
+
     const dueDate = new Date();
-    dueDate.setDate(dueDate.getDate() + 7);
+    dueDate.setDate(issueDate.getDate() + 15);
 
     const issue = await Issue.create({
       bookId,
       username,
+      issueDate,
       dueDate,
     });
 
@@ -336,7 +344,41 @@ app.post("/issues/return", async (req, res) => {
   }
 });
 
-// All Issues
+/* ================= STUDENT FINE ROUTE ================= */
+
+app.get("/issues/fine/:username", async (req, res) => {
+  try {
+    const username = req.params.username;
+
+    const issues = await Issue.find({
+      username,
+      returned: false,
+    });
+
+    let fine = 0;
+
+    const today = new Date();
+
+    issues.forEach((issue) => {
+      const diff = today - new Date(issue.dueDate);
+      const lateDays = diff > 0 ? Math.ceil(diff / (1000 * 60 * 60 * 24)) : 0;
+      fine += lateDays * FINE_PER_DAY;
+    });
+
+    res.json({
+      success: true,
+      fine,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+});
+
+/* ================= ALL ISSUES ================= */
+
 app.get("/issues", async (req, res) => {
   try {
     const issues = await Issue.find()
