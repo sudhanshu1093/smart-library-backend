@@ -234,22 +234,30 @@ app.post("/issues/issue", async (req, res) => {
 
 /* ================= GET STUDENT ISSUED BOOKS ================= */
 
-app.get("/issues/student/:username", async (req, res) => {
+app.get("/issues/user/:username", async (req, res) => {
   try {
+
+    const username = req.params.username;
+
     const issues = await Issue.find({
-      username: req.params.username,
-      returned: false,
+      username: username,
+      returned: false
     }).populate("bookId");
 
     res.json({
       success: true,
-      issues,
+      issues
     });
-  } catch {
-    res.json({ success: false });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+
   }
 });
-
 /* ================= RETURN BOOK ================= */
 
 app.post("/issues/return", async (req, res) => {
