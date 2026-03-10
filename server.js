@@ -5,10 +5,9 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
 const app = express();
-
 app.use(express.json());
 
-// CORS Fix
+// CORS
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
@@ -21,13 +20,14 @@ app.use((req, res, next) => {
   next();
 });
 
-// MongoDB Connection
+/* ================= DATABASE ================= */
+
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB Connected"))
   .catch((err) => console.log(err));
 
-/* ================= USER SCHEMA ================= */
+/* ================= USER ================= */
 
 const userSchema = new mongoose.Schema({
   role: {
@@ -48,29 +48,29 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.model("User", userSchema);
 
-/* ================= BOOK SCHEMA ================= */
+/* ================= BOOK ================= */
 
 const bookSchema = new mongoose.Schema(
   {
-    title: { type: String, required: true, trim: true },
-    author: { type: String, required: true, trim: true },
-    quantity: { type: Number, required: true, min: 0 },
+    title: String,
+    author: String,
+    quantity: Number,
   },
   { timestamps: true }
 );
 
 const Book = mongoose.model("Book", bookSchema);
 
-/* ================= ISSUE SCHEMA ================= */
+/* ================= ISSUE ================= */
 
 const issueSchema = new mongoose.Schema(
   {
-    bookId: { type: mongoose.Schema.Types.ObjectId, ref: "Book", required: true },
-    username: { type: String, required: true },
+    bookId: { type: mongoose.Schema.Types.ObjectId, ref: "Book" },
+    username: String,
     issueDate: { type: Date, default: Date.now },
-    dueDate: { type: Date, required: true },
+    dueDate: Date,
     returned: { type: Boolean, default: false },
-    returnDate: { type: Date },
+    returnDate: Date,
     fine: { type: Number, default: 0 },
   },
   { timestamps: true }
@@ -81,7 +81,7 @@ const Issue = mongoose.model("Issue", issueSchema);
 const FINE_PER_DAY = 1;
 const MAX_BOOK_LIMIT = 3;
 
-/* ================= TEST ROUTE ================= */
+/* ================= TEST ================= */
 
 app.get("/", (req, res) => {
   res.send("Smart Library Backend Running 🚀");
@@ -93,41 +93,26 @@ app.post("/register", async (req, res) => {
   try {
     const { role, username, password } = req.body;
 
-    if (!role || !username || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "All fields required",
-      });
+    const existing = await User.findOne({ username });
+
+    if (existing) {
+      return res.json({ success: false, message: "Username exists" });
     }
 
-    const existingUser = await User.findOne({ username });
+    const hash = await bcrypt.hash(password, 10);
 
-    if (existingUser) {
-      return res.status(409).json({
-        success: false,
-        message: "Username already exists",
-      });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const newUser = new User({
+    await User.create({
       role,
       username,
-      password: hashedPassword,
+      password: hash,
     });
-
-    await newUser.save();
 
     res.json({
       success: true,
-      message: "Registered successfully",
+      message: "Registered",
     });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+  } catch {
+    res.json({ success: false });
   }
 });
 
@@ -137,47 +122,37 @@ app.post("/login", async (req, res) => {
   try {
     const { role, username, password } = req.body;
 
-    if (!role || !username || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "All fields required",
-      });
-    }
-
     const user = await User.findOne({ username, role });
 
     if (!user) {
-      return res.status(401).json({
+      return res.json({
         success: false,
         message: "Invalid credentials",
       });
     }
 
-    const isMatch = await bcrypt.compare(password, user.password);
+    const match = await bcrypt.compare(password, user.password);
 
-    if (!isMatch) {
-      return res.status(401).json({
+    if (!match) {
+      return res.json({
         success: false,
         message: "Invalid credentials",
       });
     }
 
     const token = jwt.sign(
-      { id: user._id, role: user.role },
+      { id: user._id },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
     res.json({
       success: true,
-      message: "Login successful",
       token,
+      username,
     });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+  } catch {
+    res.json({ success: false });
   }
 });
 
@@ -185,76 +160,49 @@ app.post("/login", async (req, res) => {
 
 // Add Book
 app.post("/books", async (req, res) => {
-  try {
-    const { title, author, quantity } = req.body;
+  const { title, author, quantity } = req.body;
 
-    const book = await Book.create({
-      title,
-      author,
-      quantity: Number(quantity),
-    });
+  const book = await Book.create({
+    title,
+    author,
+    quantity,
+  });
 
-    res.json({
-      success: true,
-      message: "Book added",
-      book,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
-  }
+  res.json({ success: true, book });
 });
 
 // Get Books
 app.get("/books", async (req, res) => {
-  try {
-    const books = await Book.find().sort({ createdAt: -1 });
+  const books = await Book.find().sort({ createdAt: -1 });
 
-    res.json({
-      success: true,
-      books,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
-  }
+  res.json({
+    success: true,
+    books,
+  });
 });
 
-/* ================= ISSUE ROUTES ================= */
+/* ================= ISSUE BOOK ================= */
 
-// Issue Book
 app.post("/issues/issue", async (req, res) => {
   try {
     const { bookId, username } = req.body;
 
     const book = await Book.findById(bookId);
 
-    if (!book) {
-      return res.status(404).json({
-        success: false,
-        message: "Book not found",
-      });
-    }
-
-    if (book.quantity <= 0) {
-      return res.status(400).json({
+    if (!book || book.quantity <= 0) {
+      return res.json({
         success: false,
         message: "Book not available",
       });
     }
 
-    // Student limit check
     const issuedCount = await Issue.countDocuments({
       username,
       returned: false,
     });
 
     if (issuedCount >= MAX_BOOK_LIMIT) {
-      return res.status(400).json({
+      return res.json({
         success: false,
         message: "Maximum 3 books allowed",
       });
@@ -277,35 +225,43 @@ app.post("/issues/issue", async (req, res) => {
 
     res.json({
       success: true,
-      message: "Book issued",
       issue,
     });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+  } catch {
+    res.json({ success: false });
   }
 });
 
-// Return Book
+/* ================= GET STUDENT ISSUED BOOKS ================= */
+
+app.get("/issues/student/:username", async (req, res) => {
+  try {
+    const issues = await Issue.find({
+      username: req.params.username,
+      returned: false,
+    }).populate("bookId");
+
+    res.json({
+      success: true,
+      issues,
+    });
+  } catch {
+    res.json({ success: false });
+  }
+});
+
+/* ================= RETURN BOOK ================= */
+
 app.post("/issues/return", async (req, res) => {
   try {
     const { issueId } = req.body;
 
     const issue = await Issue.findById(issueId);
 
-    if (!issue) {
-      return res.status(404).json({
+    if (!issue || issue.returned) {
+      return res.json({
         success: false,
-        message: "Issue not found",
-      });
-    }
-
-    if (issue.returned) {
-      return res.status(400).json({
-        success: false,
-        message: "Already returned",
+        message: "Invalid return",
       });
     }
 
@@ -313,9 +269,13 @@ app.post("/issues/return", async (req, res) => {
     const due = new Date(issue.dueDate);
 
     const diff = now - due;
-    const daysLate = diff > 0 ? Math.ceil(diff / (1000 * 60 * 60 * 24)) : 0;
 
-    const fine = daysLate * FINE_PER_DAY;
+    const lateDays =
+      diff > 0
+        ? Math.ceil(diff / (1000 * 60 * 60 * 24))
+        : 0;
+
+    const fine = lateDays * FINE_PER_DAY;
 
     issue.returned = true;
     issue.returnDate = now;
@@ -332,69 +292,40 @@ app.post("/issues/return", async (req, res) => {
 
     res.json({
       success: true,
-      message: "Book returned",
       fine,
-      daysLate,
     });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+  } catch {
+    res.json({ success: false });
   }
 });
 
-/* ================= STUDENT FINE ROUTE ================= */
+/* ================= STUDENT FINE ================= */
 
 app.get("/issues/fine/:username", async (req, res) => {
-  try {
-    const username = req.params.username;
+  const issues = await Issue.find({
+    username: req.params.username,
+    returned: false,
+  });
 
-    const issues = await Issue.find({
-      username,
-      returned: false,
-    });
+  let fine = 0;
 
-    let fine = 0;
+  const today = new Date();
 
-    const today = new Date();
+  issues.forEach((issue) => {
+    const diff = today - new Date(issue.dueDate);
 
-    issues.forEach((issue) => {
-      const diff = today - new Date(issue.dueDate);
-      const lateDays = diff > 0 ? Math.ceil(diff / (1000 * 60 * 60 * 24)) : 0;
-      fine += lateDays * FINE_PER_DAY;
-    });
+    const lateDays =
+      diff > 0
+        ? Math.ceil(diff / (1000 * 60 * 60 * 24))
+        : 0;
 
-    res.json({
-      success: true,
-      fine,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
-  }
-});
+    fine += lateDays * FINE_PER_DAY;
+  });
 
-/* ================= ALL ISSUES ================= */
-
-app.get("/issues", async (req, res) => {
-  try {
-    const issues = await Issue.find()
-      .populate("bookId")
-      .sort({ createdAt: -1 });
-
-    res.json({
-      success: true,
-      issues,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
-  }
+  res.json({
+    success: true,
+    fine,
+  });
 });
 
 /* ================= SERVER ================= */
